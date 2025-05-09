@@ -9,6 +9,7 @@ from rouge_score import rouge_scorer
 import numpy as np
 import time
 import math 
+import argparse
 
 # Worker function for parallel processing
 def _calculate_partial_homogenization(args):
@@ -29,12 +30,8 @@ def _calculate_partial_homogenization(args):
 
     partial_corpus_score = 0.0
 
-    for ref_doc in sub_data_refs: # Iterate only over the assigned subset of references
-        # Get all the other utterances from the full_data to compare against
-        # Need to be careful if ref_doc itself is in full_data to exclude the exact instance
-        # A safer way is to pass indices or ensure sub_data_refs are distinct items
-        # For simplicity here, assuming ref_doc is one of the items in full_data
-        preds = [x for x in full_data if x != ref_doc] # Simple exclusion
+    for ref_doc in sub_data_refs: 
+        preds = [x for x in full_data if x != ref_doc] 
         if not preds:
             continue
 
@@ -44,7 +41,6 @@ def _calculate_partial_homogenization(args):
         if measure == 'rougel':
             doc_score = sum([scorer.score(p, ref_doc)['rougeL'].fmeasure for p in preds])
         elif measure == 'bertscore':
-            # Ensure preds and refs_for_preds are not empty
             if preds and refs_for_preds:
                 computed_scores = scorer.compute(predictions=preds,
                                                  references=refs_for_preds,
@@ -60,18 +56,11 @@ def _calculate_partial_homogenization(args):
                                                references=[[r] for r in refs_for_preds])
                 doc_score = computed_scores['bleu'] * len(preds) # BLEU returns an average, scale it back
 
-        # Average score for the current ref_doc against all others
-        if len(full_data) > 1: # Avoid division by zero if only one doc in original data
+        # avg
+        if len(full_data) > 1: 
              partial_corpus_score += doc_score / (len(full_data) - 1)
-        elif len(full_data) == 1 and not preds: # Only one document total
-            # In this case, homogenization is maximal by some definitions.
-            # The original code's logic `corpus_score += len(data)` if `corpus_score == 0`
-            # and then `corpus_score / len(data)` would lead to 1.0.
-            # If only one doc, it's perfectly homogenized with itself.
-            # The loop for preds won't run.
-            # Let's handle this at the aggregation stage based on original logic.
+        elif len(full_data) == 1 and not preds: # one document total
             pass
-
 
     return partial_corpus_score
 
@@ -173,15 +162,33 @@ def homogenization_score(
     return round(final_score, 3)
 
 def main():
-    dataset = load_from_disk("data/simple_stories")
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, default='data/simple_stories', help='Path to the dataset')
+    parser.add_argument('--num_samples', type=int, default=-1, help='Number of samples to take')
+    parser.add_argument('--n_processes', type=int, default=8, help='Number of processes to use')
+    parser.add_argument('--measure', type=str, default='rougel', help='Scoring measure')
+    args = parser.parse_args()
 
-    num_available_samples = 100
-    samples_to_take = min(num_available_samples, len(dataset['test']['story']))
+    dataset = load_from_disk(args.dataset)
+    split = 'test' if 'simple_stories' in args.dataset else 'validation'
 
-    data_example = dataset['test']['story'][:samples_to_take]
+    if 'story' in dataset[split].column_names:
+        text_column = 'story'
+    else:
+        text_column = dataset[split].column_names[0]
+
+    if args.num_samples == -1:
+        num_available_samples = len(dataset[split])
+    else:
+        num_available_samples = args.num_samples
+    samples_to_take = min(args.num_samples, num_available_samples)
+    if samples_to_take < args.num_samples:
+        print(f"Warning: Requested {args.num_samples} samples, but only {num_available_samples} available in train split. Using {samples_to_take}.")
+
+    data_example = dataset[split][text_column][:samples_to_take]
 
     start_time = time.time()
-    print(homogenization_score(data_example, 'rougel', n_processes=8))
+    print(homogenization_score(data_example, args.measure, n_processes=args.n_processes))
     end_time = time.time()
     print(f"Time taken: {end_time - start_time} seconds")
 

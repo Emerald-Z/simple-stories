@@ -34,8 +34,10 @@ def main():
     parser.add_argument("--output_dir", type=str, default="results", help="Directory to save results")
     parser.add_argument("--compute_metrics", action="store_true", help="Compute metrics")
     parser.add_argument("--compute_patterns_ngram", action="store_true", help="Compute n-gram patterns")
+    parser.add_argument("--metric", type=str, default="bertscore", help="'bertscore', or 'rougel'") # TODO: filepath
     args = parser.parse_args()
 
+    metric = args.metric
     print("Loading dataset...")
     load_start_time = time.time()
     dataset = load_from_disk(args.dataset)
@@ -73,9 +75,9 @@ def main():
             # sample 30 random points from the dataset
             indices = np.random.choice(len(data_example), subpopulation_size, replace=False)
             data_sample = [data_example[idx] for idx in indices]
-            score = homogenization_score(data_sample, 'bertscore')
+            score = homogenization_score(data_sample, metric)
             scores.append(score)
-        
+
         # Calculate average score and standard deviation
         avg_score = np.mean(scores)
         std_score = np.std(scores)
@@ -106,7 +108,7 @@ def main():
         
         # Save scores to file
         os.makedirs(args.output_dir, exist_ok=True)
-        output_filename = os.path.join(args.output_dir, f"{dataset_name}_bertscore_homogenization_samples{samples_to_take}.json")
+        output_filename = os.path.join(args.output_dir, f"{dataset_name}_{metric}_homogenization_samples{samples_to_take}.json")
         
         with open(output_filename, 'w') as f:
             json.dump(all_metrics, f, indent=4)
